@@ -4,7 +4,7 @@
 
 **主要用途：** 方便将大型项目的代码上下文一次性投喂给 ChatGPT、Claude、DeepSeek 等 AI 模型，用于代码分析、重构或学习。
 
-![License](https://img.shields.io/badge/License-MIT-blue.svg) ![Kotlin](https://img.shields.io/badge/Kotlin-2.0.20-purple.svg) ![Compose](https://img.shields.io/badge/Compose-Multiplatform-blue.svg)
+![alt text](https://img.shields.io/badge/License-Apache%202.0-blue.svg) ![Kotlin](https://img.shields.io/badge/Kotlin-2.0.20-purple.svg) ![Compose](https://img.shields.io/badge/Compose-Multiplatform-blue.svg)
 
 ## ✨ 主要功能
 
@@ -23,13 +23,12 @@
 
 ## 📸 截图
 
-*(此处建议您运行项目后截图并替换为真实图片，例如放在 screenshots 文件夹下)*
+<img width="1000" height="1229" alt="d3da07eb4267a2e6d185be071f05d7d3" src="https://github.com/user-attachments/assets/76694f96-d0b8-49ed-81e1-afe8c46ad992" />
 
-> ![App Screenshot](https://via.placeholder.com/800x500?text=SourcePack+Screenshot)
 
 ## 🛠️ 技术栈
 
-本项目使用纯 Kotlin 构建：
+本项目使用 Kotlin 构建：
 
 *   **语言**: [Kotlin](https://kotlinlang.org/)
 *   **UI 框架**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/) (Desktop/JVM)
@@ -63,4 +62,27 @@
 
 ## 📄 许可证
 
-本项目基于 MIT 许可证开源 - 详见 [LICENSE](LICENSE) 文件。
+本项目基于 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)许可证开源 - 详见 [LICENSE](LICENSE) 文件。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

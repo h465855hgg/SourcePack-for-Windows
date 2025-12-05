@@ -17,6 +17,7 @@ import org.source.pack.core.utils.SourcePacker
 import java.awt.FileDialog
 import java.io.File
 import javax.swing.SwingUtilities
+import javax.swing.filechooser.FileSystemView // 引入 FileSystemView
 
 @Composable
 fun Home() {
@@ -38,10 +39,10 @@ fun Home() {
     var ignoreBuild by remember { mutableStateOf(true) }
     var ignoreGradle by remember { mutableStateOf(true) }
 
-    var userIgnoreFiles by remember { mutableStateOf("") } // 逗号分隔
-    var userIgnoreExts by remember { mutableStateOf("log, tmp") } // 逗号分隔
+    var userIgnoreFiles by remember { mutableStateOf("") }
+    var userIgnoreExts by remember { mutableStateOf("log, tmp") }
 
-    // UI 展开状态 (全部使用 Expander 控制)
+    // UI 展开状态
     var isSourceExpanded by remember { mutableStateOf(true) }
     var isOutputExpanded by remember { mutableStateOf(true) }
     var isAdvancedOptionsExpanded by remember { mutableStateOf(false) }
@@ -52,16 +53,35 @@ fun Home() {
     var statusMessage by remember { mutableStateOf<Status?>(null) }
 
     // --- 逻辑联动 ---
-    // 自动根据格式修改输出文件的后缀名
-    LaunchedEffect(selectedFormat) {
-        if (outputPath.isNotBlank()) {
-            val file = File(outputPath)
-            val parent = file.parent ?: ""
-            val name = file.nameWithoutExtension
-            val ext = if (selectedFormat == SourcePacker.Format.XML) ".xml" else ".md"
-            // 只有当当前后缀不匹配时才修改
-            if (!file.name.endsWith(ext, ignoreCase = true)) {
-                outputPath = if (parent.isNotEmpty()) "$parent${File.separator}$name$ext" else "$name$ext"
+    LaunchedEffect(inputPath, selectedFormat, sourceType) {
+        if (inputPath.isNotBlank()) {
+            val name = if (sourceType == SourceType.Local) {
+                File(inputPath).name
+            } else {
+                inputPath.trim().removeSuffix("/").removeSuffix(".git")
+                    .substringAfterLast("/").takeIf { !it.contains("://") } ?: ""
+            }
+
+            if (name.isNotBlank()) {
+                val ext = if (selectedFormat == SourcePacker.Format.XML) ".xml" else ".md"
+                val newFileName = "$name$ext"
+
+                val currentOutFile = if (outputPath.isNotBlank()) File(outputPath) else null
+                val keepCurrentDir = currentOutFile?.parentFile?.exists() == true
+
+                val parentDir = if (keepCurrentDir) {
+                    currentOutFile?.parent
+                } else if (sourceType == SourceType.Local && File(inputPath).exists()) {
+                    File(inputPath).parent
+                } else {
+                    null
+                }
+
+                outputPath = if (parentDir != null) {
+                    File(parentDir, newFileName).absolutePath
+                } else {
+                    newFileName
+                }
             }
         }
     }
@@ -77,7 +97,7 @@ fun Home() {
         // 标题
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = "Source Packer",
+                text = "SourcePack",
                 style = FluentTheme.typography.titleLarge
             )
             Text(
@@ -87,7 +107,7 @@ fun Home() {
             )
         }
 
-        // 1. 输入源设置 (Expander)
+        // 1. 输入源设置
         Expander(
             expanded = isSourceExpanded,
             onExpandedChanged = { isSourceExpanded = it },
@@ -99,7 +119,6 @@ fun Home() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // 源类型切换
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         RadioButton(
                             selected = sourceType == SourceType.Local,
@@ -113,7 +132,6 @@ fun Home() {
                         )
                     }
 
-                    // 输入框与按钮
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -124,14 +142,28 @@ fun Home() {
                             placeholder = { Text(if (sourceType == SourceType.Local) "例如: C:\\Projects\\MySource" else "例如: https://github.com/user/repo") },
                             modifier = Modifier.weight(1f),
                             header = { Text("项目路径 / URL") },
-                            trailing = null // 移除手动清除按钮，避免双重 X
+                            trailing = null
                         )
 
                         if (sourceType == SourceType.Local) {
                             Button(
                                 onClick = {
                                     scope.launch(Dispatchers.IO) {
-                                        val file = FilePickerUtil.chooseDirectory()
+                                        // 【关键修改】使用 FileSystemView 获取真正的桌面路径
+                                        // 这可以解决 OneDrive 同步导致桌面路径变更的问题
+                                        val fsView = FileSystemView.getFileSystemView()
+                                        val desktop = fsView.homeDirectory // 在 Windows 上这指向桌面
+
+                                        val currentFile = if (inputPath.isNotBlank()) File(inputPath) else null
+
+                                        // 优先级：当前已选路径 > 系统获取的桌面 > 用户主目录
+                                        val initialDir = when {
+                                            currentFile?.exists() == true -> currentFile
+                                            desktop.exists() -> desktop
+                                            else -> File(System.getProperty("user.home"))
+                                        }
+
+                                        val file = FilePickerUtil.chooseDirectory(initialDir)
                                         if (file != null) {
                                             inputPath = file.absolutePath
                                         }
@@ -149,7 +181,7 @@ fun Home() {
             }
         )
 
-        // 2. 输出设置 (Expander)
+        // 2. 输出设置
         Expander(
             expanded = isOutputExpanded,
             onExpandedChanged = { isOutputExpanded = it },
@@ -173,8 +205,26 @@ fun Home() {
                         Button(
                             onClick = {
                                 scope.launch(Dispatchers.IO) {
-                                    val defaultName = "SourcePack_Output" + if(selectedFormat == SourcePacker.Format.XML) ".xml" else ".md"
-                                    val file = FilePickerUtil.saveFile(defaultName)
+                                    val name = if (inputPath.isNotBlank()) {
+                                        if (sourceType == SourceType.Local) File(inputPath).name
+                                        else inputPath.trim().removeSuffix("/").removeSuffix(".git").substringAfterLast("/").takeIf { !it.contains("://") } ?: ""
+                                    } else ""
+
+                                    val safeName = if (name.isBlank()) "SourcePack_Output" else name
+                                    val defaultName = safeName + if(selectedFormat == SourcePacker.Format.XML) ".xml" else ".md"
+
+                                    // 保存弹窗也默认尝试定位到桌面（如果没有其他更好的位置）
+                                    val fsView = FileSystemView.getFileSystemView()
+                                    val desktop = fsView.homeDirectory
+
+                                    // 优先级：当前输入源的父目录 > 桌面 > 用户主目录
+                                    val initialDir = if (inputPath.isNotBlank() && sourceType == SourceType.Local) {
+                                        File(inputPath).parentFile?.takeIf { it.exists() }
+                                    } else {
+                                        desktop
+                                    }
+
+                                    val file = FilePickerUtil.saveFile(defaultName, initialDir)
                                     if (file != null) {
                                         outputPath = file.absolutePath
                                     }
@@ -191,7 +241,7 @@ fun Home() {
             }
         )
 
-        // 3. 高级配置 (Expander)
+        // 3. 高级配置
         Expander(
             expanded = isAdvancedOptionsExpanded,
             onExpandedChanged = { isAdvancedOptionsExpanded = it },
@@ -203,9 +253,7 @@ fun Home() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // 格式与模式
                     Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        // 格式选择
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("输出格式", style = FluentTheme.typography.bodyStrong)
                             MenuFlyoutContainer(
@@ -231,7 +279,6 @@ fun Home() {
                             )
                         }
 
-                        // 模式选择
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("输出内容模式", style = FluentTheme.typography.bodyStrong)
                             MenuFlyoutContainer(
@@ -258,7 +305,6 @@ fun Home() {
                         }
                     }
 
-                    // 开关选项
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("过滤与优化", style = FluentTheme.typography.bodyStrong)
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -269,7 +315,6 @@ fun Home() {
                         }
                     }
 
-                    // 自定义忽略
                     TextField(
                         value = userIgnoreFiles,
                         onValueChange = { userIgnoreFiles = it },
@@ -293,7 +338,6 @@ fun Home() {
         // 4. 执行区域
         Spacer(Modifier.height(8.dp))
 
-        // 状态提示条
         statusMessage?.let { status ->
             InfoBar(
                 title = { Text(status.title) },
@@ -303,7 +347,6 @@ fun Home() {
             )
         }
 
-        // 进度条
         if (isProcessing) {
             ProgressBar(modifier = Modifier.fillMaxWidth())
             Text(
@@ -313,7 +356,6 @@ fun Home() {
             )
         }
 
-        // 底部按钮
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
@@ -328,7 +370,6 @@ fun Home() {
                     statusMessage = null
                     scope.launch(Dispatchers.IO) {
                         try {
-                            // 调用核心逻辑
                             val config = SourcePacker.Config(
                                 compress = isCompress,
                                 ignoreGit = ignoreGit,
@@ -384,24 +425,32 @@ data class Status(
 
 // --- 文件选择工具类 (AWT/Swing) ---
 object FilePickerUtil {
-    fun chooseDirectory(): File? {
+    fun chooseDirectory(initialDirectory: File? = null): File? {
         if (System.getProperty("os.name").lowercase().contains("mac")) {
             val dialog = FileDialog(null as java.awt.Frame?, "选择文件夹", FileDialog.LOAD)
             System.setProperty("apple.awt.fileDialogForDirectories", "true")
+            if (initialDirectory != null && initialDirectory.exists()) {
+                dialog.directory = initialDirectory.absolutePath
+            }
             dialog.isVisible = true
             System.setProperty("apple.awt.fileDialogForDirectories", "false")
             return if (dialog.directory != null && dialog.file != null) {
                 File(dialog.directory, dialog.file)
             } else null
         }
-        return chooseDirectorySwing()
+        return chooseDirectorySwing(initialDirectory)
     }
 
-    private fun chooseDirectorySwing(): File? {
+    private fun chooseDirectorySwing(initialDirectory: File? = null): File? {
         val openChooser = {
             val chooser = javax.swing.JFileChooser()
             chooser.fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
-            try { chooser.currentDirectory = File(System.getProperty("user.home")) } catch (_: Exception) {}
+            try {
+                // 使用传入的 initialDirectory，如果为 null，则回退到用户主目录
+                // 注意：这里移除了 FileSystemView 逻辑，因为 Home.kt 已经传进来了
+                chooser.currentDirectory = initialDirectory?.takeIf { it.exists() } ?: File(System.getProperty("user.home"))
+            } catch (_: Exception) {}
+
             val returnVal = chooser.showOpenDialog(null)
             if (returnVal == javax.swing.JFileChooser.APPROVE_OPTION) {
                 chooser.selectedFile
@@ -418,9 +467,12 @@ object FilePickerUtil {
         }
     }
 
-    fun saveFile(defaultName: String): File? {
+    fun saveFile(defaultName: String, initialDirectory: File? = null): File? {
         val dialog = FileDialog(null as java.awt.Frame?, "保存文件", FileDialog.SAVE)
         dialog.file = defaultName
+        if (initialDirectory != null && initialDirectory.exists()) {
+            dialog.directory = initialDirectory.absolutePath
+        }
         dialog.isVisible = true
         return if (dialog.directory != null && dialog.file != null) {
             File(dialog.directory, dialog.file)
